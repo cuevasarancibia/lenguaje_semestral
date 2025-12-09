@@ -1,3 +1,4 @@
+// components/MagicGenerator.tsx
 import React, { useState, useEffect } from 'react';
 import { generateMagicStory } from '../services/geminiService';
 import { MagicGenre, GeneratedContent } from '../types';
@@ -13,21 +14,24 @@ export const MagicGenerator: React.FC<MagicGeneratorProps> = ({ onBack }) => {
   const [displayedText, setDisplayedText] = useState('');
   const [showAnswer, setShowAnswer] = useState(false);
 
-  // Typing effect
+  // Typing effect (corregido)
   useEffect(() => {
-    if (content?.story) {
-      let i = 0;
-      const speed = 20; // ms per char
-      const timer = setInterval(() => {
-        if (i < content.story.length) {
-          setDisplayedText((prev) => prev + content.story.charAt(i));
-          i++;
-        } else {
-          clearInterval(timer);
-        }
-      }, speed);
-      return () => clearInterval(timer);
-    }
+    if (!content?.story) return;
+    
+    setDisplayedText('');
+    const story = content.story;
+    let currentIndex = 0;
+    
+    const timer = setInterval(() => {
+      if (currentIndex < story.length) {
+        setDisplayedText(story.substring(0, currentIndex + 1));
+        currentIndex++;
+      } else {
+        clearInterval(timer);
+      }
+    }, 20);
+    
+    return () => clearInterval(timer);
   }, [content]);
 
   const handleGenerate = async (selectedGenre: MagicGenre) => {
