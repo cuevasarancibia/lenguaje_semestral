@@ -168,7 +168,7 @@ export const rapidRoundSets: RapidRoundSet[] = [
       { id: 5, statement: "La Tierra comenzó a enfriarse hace 4000 millones de años.", isTrue: true, explanation: "Verdadero. El texto dice: 'La Tierra empezó a enfriarse hace 4000 millones de años'." },
       { id: 6, statement: "Las placas están compuestas por rocas y minerales.", isTrue: true, explanation: "Verdadero. El texto dice que están 'compuestas por distintos tipos de roca y minerales'." },
       { id: 7, statement: "Todas las placas tectónicas tienen el mismo tamaño.", isTrue: false, explanation: "Falso. El texto menciona 'grandes placas' y también 'placas más pequeñas'." },
-      { id: 8, statement: "Las placas tectónicas flotan sobre el interior de la Tierra.", isTrue: true, explanation: "Verdadero. El texto implica esto al describir que son piezas separadas que forman la superficie." }
+      { id: 8, statement: "La palabra 'tectónica' se relaciona con la estructura de la Tierra.", isTrue: true, explanation: "Verdadero. El contexto del texto habla sobre la estructura de la superficie terrestre." }
     ]
   },
 
@@ -274,9 +274,3 @@ export const rapidRoundSets: RapidRoundSet[] = [
     ]
   }
 ];
-
-// Función para obtener sets aleatorios
-export const getRandomSets = (count: number = 2): RapidRoundSet[] => {
-  const shuffled = [...rapidRoundSets].sort(() => Math.random() - 0.5);
-  return shuffled.slice(0, count);
-};
