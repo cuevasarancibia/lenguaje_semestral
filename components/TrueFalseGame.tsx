@@ -1,165 +1,382 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { rapidRoundSets } from '../data';
+import { RapidRoundQuestion } from '../types';
 
 interface TrueFalseGameProps {
   onBack: () => void;
 }
 
-type GamePhase = 'reading' | 'questioning' | 'finished';
+interface LeaderboardEntry {
+  name: string;
+  score: number;
+  total: number;
+  percentage: number;
+  date: string;
+}
+
+// Función para mezclar array (Fisher-Yates shuffle)
+const shuffleArray = <T,>(array: T[]): T[] => {
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+};
+
+// Función para generar una partida aleatoria
+const generateRandomGame = () => {
+  // Mezclar todos los sets y tomar 2
+  const shuffledSets = shuffleArray(rapidRoundSets);
+  const selectedSets = shuffledSets.slice(0, 2);
+  
+  // De cada set, tomar 4 preguntas aleatorias
+  const questions: { question: RapidRoundQuestion; setTitle: string; setText: string }[] = [];
+  
+  selectedSets.forEach(set => {
+    const shuffledQuestions = shuffleArray(set.questions);
+    const selected = shuffledQuestions.slice(0, 4);
+    selected.forEach(q => {
+      questions.push({
+        question: q,
+        setTitle: set.title,
+        setText: set.text
+      });
+    });
+  });
+  
+  return {
+    questions,
+    setTitles: selectedSets.map(s => s.title)
+  };
+};
+
+// Funciones para manejar el leaderboard en localStorage
+const getLeaderboard = (): LeaderboardEntry[] => {
+  try {
+    const stored = localStorage.getItem('aventura-leaderboard');
+    return stored ? JSON.parse(stored) : [];
+  } catch {
+    return [];
+  }
+};
+
+const saveToLeaderboard = (entry: LeaderboardEntry) => {
+  const leaderboard = getLeaderboard();
+  leaderboard.push(entry);
+  // Ordenar por porcentaje (descendente) y luego por puntaje
+  leaderboard.sort((a, b) => {
+    if (b.percentage !== a.percentage) return b.percentage - a.percentage;
+    return b.score - a.score;
+  });
+  // Mantener solo top 10
+  const top10 = leaderboard.slice(0, 10);
+  localStorage.setItem('aventura-leaderboard', JSON.stringify(top10));
+  return top10;
+};
 
 export const TrueFalseGame: React.FC<TrueFalseGameProps> = ({ onBack }) => {
-  const [currentSetIndex, setCurrentSetIndex] = useState(0);
-  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
-  const [phase, setPhase] = useState<GamePhase>('reading');
+  // Estado del juego
+  const [gameData, setGameData] = useState(() => generateRandomGame());
+  const [currentIndex, setCurrentIndex] = useState(0);
   const [score, setScore] = useState(0);
-  const [feedback, setFeedback] = useState<'correct' | 'incorrect' | null>(null);
+  const [showFeedback, setShowFeedback] = useState(false);
+  const [lastAnswer, setLastAnswer] = useState<boolean | null>(null);
+  const [gameFinished, setGameFinished] = useState(false);
+  
+  // Estado del leaderboard
+  const [showNameInput, setShowNameInput] = useState(false);
+  const [playerName, setPlayerName] = useState('');
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+  const [scoreSaved, setScoreSaved] = useState(false);
 
-  const currentSet = rapidRoundSets[currentSetIndex];
-  const currentQuestion = currentSet.questions[currentQuestionIndex];
+  // Cargar leaderboard al iniciar
+  useEffect(() => {
+    setLeaderboard(getLeaderboard());
+  }, []);
 
-  // Total questions calculation
-  const totalQuestions = rapidRoundSets.reduce((acc, set) => acc + set.questions.length, 0);
-  const currentGlobalQuestion = rapidRoundSets.slice(0, currentSetIndex).reduce((acc, set) => acc + set.questions.length, 0) + currentQuestionIndex + 1;
-
-  const handleStartQuestions = () => {
-    setPhase('questioning');
-  };
+  const currentQuestion = gameData.questions[currentIndex];
+  const totalQuestions = gameData.questions.length;
+  const percentage = Math.round((score / totalQuestions) * 100);
 
   const handleAnswer = (answer: boolean) => {
-    if (feedback !== null) return; // Prevent double clicks
-
-    const isCorrect = answer === currentQuestion.isTrue;
-    if (isCorrect) setScore(s => s + 1);
+    const isCorrect = answer === currentQuestion.question.isTrue;
+    setLastAnswer(answer);
+    setShowFeedback(true);
     
-    setFeedback(isCorrect ? 'correct' : 'incorrect');
-
-    setTimeout(() => {
-      setFeedback(null);
-      // Check if there are more questions in this set
-      if (currentQuestionIndex < currentSet.questions.length - 1) {
-        setCurrentQuestionIndex(prev => prev + 1);
-      } else {
-        // End of this set
-        if (currentSetIndex < rapidRoundSets.length - 1) {
-          // Move to next set
-          setCurrentSetIndex(prev => prev + 1);
-          setCurrentQuestionIndex(0);
-          setPhase('reading');
-        } else {
-          // End of game
-          setPhase('finished');
-        }
-      }
-    }, 2000);
+    if (isCorrect) {
+      setScore(prev => prev + 1);
+    }
   };
 
-  if (phase === 'finished') {
+  const handleNext = () => {
+    setShowFeedback(false);
+    setLastAnswer(null);
+    
+    if (currentIndex + 1 >= totalQuestions) {
+      setGameFinished(true);
+    } else {
+      setCurrentIndex(prev => prev + 1);
+    }
+  };
+
+  const handleSaveScore = () => {
+    if (playerName.length !== 5) return;
+    
+    const entry: LeaderboardEntry = {
+      name: playerName.toUpperCase(),
+      score,
+      total: totalQuestions,
+      percentage,
+      date: new Date().toLocaleDateString('es-CL')
+    };
+    
+    const updatedLeaderboard = saveToLeaderboard(entry);
+    setLeaderboard(updatedLeaderboard);
+    setScoreSaved(true);
+    setShowNameInput(false);
+  };
+
+  const handlePlayAgain = () => {
+    // Generar nueva partida completamente aleatoria
+    setGameData(generateRandomGame());
+    setCurrentIndex(0);
+    setScore(0);
+    setShowFeedback(false);
+    setLastAnswer(null);
+    setGameFinished(false);
+    setShowNameInput(false);
+    setPlayerName('');
+    setScoreSaved(false);
+  };
+
+  // Pantalla de fin de juego
+  if (gameFinished) {
+    const emoji = percentage >= 80 ? '🏆' : percentage >= 60 ? '⭐' : percentage >= 40 ? '💪' : '📚';
+    const message = percentage >= 80 ? '¡Excelente!' : percentage >= 60 ? '¡Muy bien!' : percentage >= 40 ? '¡Buen esfuerzo!' : '¡Sigue practicando!';
+
     return (
-      <div className="text-center bg-white p-10 rounded-3xl shadow-lg max-w-lg mx-auto animate-pop-in border-4 border-blue-100">
-        <h2 className="text-4xl font-bold text-slate-800 mb-4">¡Ronda Terminada!</h2>
-        <div className="text-6xl mb-6">🏁</div>
-        <p className="text-2xl text-slate-600 mb-8">
-          Tu puntaje: <span className="font-bold text-blue-600">{score}</span> de {totalQuestions}
-        </p>
-        <div className="flex gap-4 justify-center">
-          <button onClick={onBack} className="bg-slate-200 text-slate-700 px-6 py-3 rounded-full font-bold hover:bg-slate-300">Volver al Menú</button>
+      <div className="min-h-screen bg-gradient-to-b from-orange-100 to-yellow-100 p-4">
+        <div className="max-w-md mx-auto">
+          {/* Resultado */}
+          <div className="bg-white rounded-2xl shadow-lg p-6 mb-4 text-center">
+            <div className="text-6xl mb-4">{emoji}</div>
+            <h2 className="text-2xl font-bold text-orange-600 mb-2">{message}</h2>
+            <p className="text-xl mb-2">
+              Obtuviste <span className="font-bold text-green-600">{score}</span> de {totalQuestions}
+            </p>
+            <p className="text-3xl font-bold text-orange-500 mb-4">{percentage}%</p>
+            
+            <p className="text-sm text-gray-500 mb-4">
+              Temas: {gameData.setTitles.join(' y ')}
+            </p>
+
+            {/* Botón para guardar puntaje */}
+            {!scoreSaved && !showNameInput && (
+              <button
+                onClick={() => setShowNameInput(true)}
+                className="w-full bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-3 px-6 rounded-xl mb-3 transition-all"
+              >
+                📝 Guardar mi puntaje
+              </button>
+            )}
+
+            {/* Input para nombre */}
+            {showNameInput && (
+              <div className="bg-yellow-50 rounded-xl p-4 mb-4">
+                <p className="text-sm text-gray-600 mb-2">Escribe tu nombre (5 letras):</p>
+                <input
+                  type="text"
+                  value={playerName}
+                  onChange={(e) => {
+                    const value = e.target.value.replace(/[^a-zA-Z]/g, '').slice(0, 5);
+                    setPlayerName(value);
+                  }}
+                  placeholder="ABCDE"
+                  className="w-full text-center text-2xl font-bold tracking-widest border-2 border-yellow-400 rounded-lg p-2 mb-3 uppercase"
+                  maxLength={5}
+                  autoFocus
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowNameInput(false)}
+                    className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 font-bold py-2 px-4 rounded-lg"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleSaveScore}
+                    disabled={playerName.length !== 5}
+                    className={`flex-1 font-bold py-2 px-4 rounded-lg ${
+                      playerName.length === 5
+                        ? 'bg-green-500 hover:bg-green-600 text-white'
+                        : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                    }`}
+                  >
+                    Guardar
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {scoreSaved && (
+              <div className="bg-green-100 text-green-700 rounded-xl p-3 mb-4">
+                ✅ ¡Puntaje guardado!
+              </div>
+            )}
+
+            {/* Botones de acción */}
+            <button
+              onClick={handlePlayAgain}
+              className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 px-6 rounded-xl mb-3 transition-all"
+            >
+              🎲 Nueva Partida
+            </button>
+            
+            <button
+              onClick={onBack}
+              className="w-full bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold py-3 px-6 rounded-xl transition-all"
+            >
+              🏠 Volver al Menú
+            </button>
+          </div>
+
+          {/* Leaderboard */}
+          <div className="bg-white rounded-2xl shadow-lg p-4">
+            <h3 className="text-xl font-bold text-center text-orange-600 mb-3">
+              🏆 Top 10 Mejores
+            </h3>
+            
+            {leaderboard.length === 0 ? (
+              <p className="text-center text-gray-500 py-4">
+                ¡Sé el primero en aparecer aquí!
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {leaderboard.map((entry, index) => (
+                  <div
+                    key={index}
+                    className={`flex items-center justify-between p-2 rounded-lg ${
+                      index === 0 ? 'bg-yellow-100' :
+                      index === 1 ? 'bg-gray-100' :
+                      index === 2 ? 'bg-orange-50' : 'bg-gray-50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg font-bold w-6">
+                        {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `${index + 1}.`}
+                      </span>
+                      <span className="font-mono font-bold">{entry.name}</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="font-bold text-orange-600">{entry.percentage}%</span>
+                      <span className="text-xs text-gray-500 ml-1">({entry.score}/{entry.total})</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     );
   }
 
+  // Pantalla de juego
   return (
-    <div className="max-w-2xl mx-auto">
-      <div className="flex justify-between items-center mb-6">
-        <button onClick={onBack} className="text-slate-500 font-bold hover:text-slate-700">
-          ← Salir
-        </button>
-        {phase === 'questioning' && (
-          <div className="bg-blue-100 text-blue-700 px-4 py-1 rounded-full text-sm font-bold">
-            Pregunta {currentGlobalQuestion}/{totalQuestions}
+    <div className="min-h-screen bg-gradient-to-b from-orange-100 to-yellow-100 p-4">
+      <div className="max-w-md mx-auto">
+        {/* Header */}
+        <div className="flex justify-between items-center mb-4">
+          <button
+            onClick={onBack}
+            className="bg-white hover:bg-gray-100 text-gray-600 font-bold py-2 px-4 rounded-full shadow transition-all"
+          >
+            ← Salir
+          </button>
+          <div className="bg-white rounded-full px-4 py-2 shadow">
+            <span className="font-bold text-orange-600">
+              Pregunta {currentIndex + 1}/{totalQuestions}
+            </span>
           </div>
-        )}
-      </div>
+        </div>
 
-      <div className="bg-white rounded-3xl shadow-xl overflow-hidden border-b-8 border-blue-200 relative min-h-[400px]">
-        
-        {phase === 'reading' && (
-          <div className="p-8 animate-fade-in">
-            <div className="flex items-center gap-3 mb-4">
-              <span className="text-3xl">📖</span>
-              <h2 className="text-2xl font-bold text-indigo-900">Lee con atención</h2>
-            </div>
-            <div className="bg-orange-50 p-6 rounded-2xl border-l-4 border-orange-300 mb-8">
-              <h3 className="font-bold text-orange-800 mb-2 uppercase tracking-wider text-sm">{currentSet.title}</h3>
-              <p className="text-lg leading-relaxed text-slate-800 font-medium">
-                {currentSet.text}
-              </p>
-            </div>
-            <button 
-              onClick={handleStartQuestions}
-              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl shadow-md transition-all transform hover:scale-[1.02]"
+        {/* Puntaje actual */}
+        <div className="text-center mb-4">
+          <span className="bg-green-100 text-green-700 px-4 py-1 rounded-full text-sm font-bold">
+            ✓ Correctas: {score}
+          </span>
+        </div>
+
+        {/* Tema actual */}
+        <div className="bg-orange-200 rounded-xl p-2 mb-4 text-center">
+          <span className="font-bold text-orange-800">📚 {currentQuestion.setTitle}</span>
+        </div>
+
+        {/* Texto del tema */}
+        <div className="bg-white rounded-2xl shadow-lg p-4 mb-4">
+          <p className="text-gray-700 leading-relaxed text-sm">
+            {currentQuestion.setText}
+          </p>
+        </div>
+
+        {/* Pregunta */}
+        <div className="bg-yellow-50 border-2 border-yellow-300 rounded-2xl p-4 mb-4">
+          <p className="text-lg font-medium text-gray-800 text-center">
+            "{currentQuestion.question.statement}"
+          </p>
+        </div>
+
+        {/* Botones de respuesta */}
+        {!showFeedback ? (
+          <div className="grid grid-cols-2 gap-4 mb-4">
+            <button
+              onClick={() => handleAnswer(true)}
+              className="bg-green-500 hover:bg-green-600 active:scale-95 text-white font-bold py-4 px-6 rounded-2xl shadow-lg transition-all text-xl"
             >
-              ¡Ya lo leí! Ir a las preguntas 👉
+              ✓ Verdadero
+            </button>
+            <button
+              onClick={() => handleAnswer(false)}
+              className="bg-red-500 hover:bg-red-600 active:scale-95 text-white font-bold py-4 px-6 rounded-2xl shadow-lg transition-all text-xl"
+            >
+              ✗ Falso
+            </button>
+          </div>
+        ) : (
+          /* Feedback */
+          <div className={`rounded-2xl p-4 mb-4 ${
+            lastAnswer === currentQuestion.question.isTrue 
+              ? 'bg-green-100 border-2 border-green-400' 
+              : 'bg-red-100 border-2 border-red-400'
+          }`}>
+            <div className="text-center mb-2">
+              {lastAnswer === currentQuestion.question.isTrue ? (
+                <span className="text-2xl">🎉 ¡Correcto!</span>
+              ) : (
+                <span className="text-2xl">😅 Incorrecto</span>
+              )}
+            </div>
+            <p className="text-sm text-gray-700 mb-3">
+              <strong>La respuesta es {currentQuestion.question.isTrue ? 'VERDADERO' : 'FALSO'}:</strong><br/>
+              {currentQuestion.question.explanation}
+            </p>
+            <button
+              onClick={handleNext}
+              className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 px-6 rounded-xl transition-all"
+            >
+              {currentIndex + 1 >= totalQuestions ? 'Ver Resultados →' : 'Siguiente →'}
             </button>
           </div>
         )}
 
-        {phase === 'questioning' && (
-          <>
-            {/* Progress Bar within set */}
-            <div className="h-2 bg-slate-100 w-full">
-              <div 
-                className="h-full bg-blue-500 transition-all duration-300"
-                style={{ width: `${((currentGlobalQuestion) / totalQuestions) * 100}%` }}
-              ></div>
-            </div>
-
-            <div className="p-10 text-center animate-slide-up">
-              <span className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 block">Sobre: {currentSet.title}</span>
-              <h3 className="text-2xl md:text-3xl font-bold text-slate-800 mb-10 leading-snug">
-                {currentQuestion.statement}
-              </h3>
-
-              <div className="flex gap-4 md:gap-8 justify-center mb-6">
-                <button 
-                  onClick={() => handleAnswer(true)}
-                  disabled={feedback !== null}
-                  className={`w-32 h-32 rounded-2xl text-2xl font-bold border-b-8 transition-all transform hover:scale-105 active:scale-95 flex flex-col items-center justify-center gap-2
-                    ${feedback ? 'opacity-50 cursor-not-allowed' : 'bg-green-100 border-green-300 text-green-600 hover:bg-green-200'}
-                  `}
-                >
-                  <span className="text-4xl">👍</span>
-                  Verdadero
-                </button>
-                <button 
-                  onClick={() => handleAnswer(false)}
-                  disabled={feedback !== null}
-                  className={`w-32 h-32 rounded-2xl text-2xl font-bold border-b-8 transition-all transform hover:scale-105 active:scale-95 flex flex-col items-center justify-center gap-2
-                    ${feedback ? 'opacity-50 cursor-not-allowed' : 'bg-red-100 border-red-300 text-red-600 hover:bg-red-200'}
-                  `}
-                >
-                  <span className="text-4xl">👎</span>
-                  Falso
-                </button>
-              </div>
-
-              {/* Feedback Overlay */}
-              {feedback && (
-                <div className={`absolute inset-0 flex flex-col items-center justify-center bg-opacity-95 backdrop-blur-md animate-fade-in p-6 text-center z-10
-                  ${feedback === 'correct' ? 'bg-green-50/90' : 'bg-red-50/90'}
-                `}>
-                  <div className="text-6xl mb-4">{feedback === 'correct' ? '🎉' : '❌'}</div>
-                  <h4 className={`text-3xl font-bold mb-4 ${feedback === 'correct' ? 'text-green-700' : 'text-red-700'}`}>
-                    {feedback === 'correct' ? '¡Correcto!' : '¡Incorrecto!'}
-                  </h4>
-                  <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 max-w-md">
-                    <p className="text-slate-600 font-medium text-lg">{currentQuestion.explanation}</p>
-                  </div>
-                </div>
-              )}
-            </div>
-          </>
-        )}
+        {/* Barra de progreso */}
+        <div className="bg-gray-200 rounded-full h-3 overflow-hidden">
+          <div 
+            className="bg-orange-500 h-full transition-all duration-300"
+            style={{ width: `${((currentIndex + 1) / totalQuestions) * 100}%` }}
+          />
+        </div>
       </div>
     </div>
   );
